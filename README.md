@@ -1,6 +1,6 @@
 # ritza-tools (`rt`)
 
-A CLI for converting markdown articles to styled Google Docs.
+A CLI for working with Google Docs and markdown articles.
 
 ```
 rt cgd article.md
@@ -8,6 +8,12 @@ rt cgd article.md editor@example.com
 ```
 
 Converts a markdown file to a Google Doc with clean typography (Merriweather font, styled headings, code formatting), sets sharing permissions, and copies the link to your clipboard.
+
+```
+rt comments https://docs.google.com/document/d/DOC_ID/edit
+```
+
+Prints all comments and tracked changes (suggestions) from a Google Doc.
 
 ## Prerequisites
 
@@ -102,6 +108,56 @@ On success the Google Doc link is printed and copied to your clipboard.
 4. Sets domain sharing permissions (if configured)
 5. Applies typography via the Google Docs API — Merriweather font, branded heading colours, code formatting
 6. Copies the link to clipboard
+
+### Get comments and suggestions from a Google Doc
+
+```bash
+rt comments https://docs.google.com/document/d/DOC_ID/edit
+```
+
+Or with just the document ID:
+
+```bash
+rt comments DOC_ID
+```
+
+To show only comments (skip the suggestions list):
+
+```bash
+rt comments DOC_ID --no-suggestions
+```
+
+Outputs all comments and tracked changes. Comments include notes attached to suggested edits, which are not available through the Drive API (see below).
+
+---
+
+#### How Google Doc comments actually work (and why the Drive API misses some)
+
+Google Docs has three layers of reviewer feedback, all of which look similar in the UI:
+
+**1. Regular comments** (`Insert → Comment`)
+Standard Drive comments, returned by `GET /drive/v3/files/{id}/comments`. Straightforward.
+
+**2. Tracked changes / suggestions**
+Edits made in Suggesting mode. These are stored inside the document content itself (not in Drive comments), accessible via the Docs API with `suggestionsViewMode=SUGGESTIONS_INLINE`. Each changed run has a `suggestedInsertionIds` or `suggestedDeletionIds` field containing an opaque suggestion ID.
+
+**3. Notes attached to suggestions**
+When a reviewer makes a tracked change, they can optionally type an explanatory note. In the UI this appears as a comment bubble alongside the suggestion. Internally it is a Drive comment with an `anchor` field pointing to the suggestion range.
+
+The problem: **the Drive API `comments.list` endpoint does not return these**, even with `fields=comments(id,content,anchor,...)` explicitly set and editor-level access on the file. This appears to be a gap in the API rather than a permissions issue — the same result occurs regardless of whether you authenticate as a service account or as the document owner.
+
+**The workaround: DOCX export**
+
+Exporting the document as DOCX and unzipping `word/comments.xml` gives you all comments including suggestion-linked notes, because the DOCX format stores them as standard `<w:comment>` elements. This is what `rt comments` uses:
+
+```python
+request = drive_service.files().export_media(fileId=file_id, mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+content = request.execute()
+z = zipfile.ZipFile(io.BytesIO(content))
+root = ET.fromstring(z.read('word/comments.xml'))
+```
+
+---
 
 ## Re-authenticating
 

@@ -1,7 +1,7 @@
 """Main CLI entry point for Ritza Tools"""
 
 import click
-from rt.commands import cgd
+from rt.commands import cgd, comments
 
 
 @click.group()
@@ -13,6 +13,7 @@ def main():
 
 # Register commands
 main.add_command(cgd.cgd)
+main.add_command(comments.comments)
 
 
 if __name__ == "__main__":
